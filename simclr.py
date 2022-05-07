@@ -19,7 +19,7 @@ class SimCLR(object):
         self.model = kwargs['model'].to(self.args.device)
         self.optimizer = kwargs['optimizer']
         self.scheduler = kwargs['scheduler']
-        self.writer = SummaryWriter()
+        self.writer = SummaryWriter(self.args.out)
         logging.basicConfig(filename=os.path.join(self.writer.log_dir, 'training.log'), level=logging.DEBUG)
         self.criterion = torch.nn.CrossEntropyLoss().to(self.args.device)
 
@@ -96,6 +96,15 @@ class SimCLR(object):
             if epoch_counter >= 10:
                 self.scheduler.step()
             logging.debug(f"Epoch: {epoch_counter}\tLoss: {loss}\tTop1 accuracy: {top1[0]}")
+
+            if epoch_counter % 500 == 0:
+                checkpoint_name = 'checkpoint_{:04d}.pth.tar'.format(epoch_counter)
+                save_checkpoint({
+                    'epoch': epoch_counter,
+                    'arch': self.args.arch,
+                    'state_dict': self.model.state_dict(),
+                    'optimizer': self.optimizer.state_dict(),
+                }, is_best=False, filename=os.path.join(self.writer.log_dir, checkpoint_name))
 
         logging.info("Training has finished.")
         # save model checkpoints
