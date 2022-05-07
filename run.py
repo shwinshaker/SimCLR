@@ -1,25 +1,20 @@
 import argparse
 import torch
 import torch.backends.cudnn as cudnn
-from torchvision import models
 from data_aug.contrastive_learning_dataset import ContrastiveLearningDataset
-from models.resnet_simclr import ResNetSimCLR
+from models.model_simclr import ModelSimCLR
 from simclr import SimCLR
-
-model_names = sorted(name for name in models.__dict__
-                     if name.islower() and not name.startswith("__")
-                     and callable(models.__dict__[name]))
+import os
 
 parser = argparse.ArgumentParser(description='PyTorch SimCLR')
-parser.add_argument('-data', metavar='DIR', default='./datasets',
+parser.add_argument('-data', metavar='DIR', default='./data',
                     help='path to dataset')
-parser.add_argument('-dataset-name', default='stl10',
+parser.add_argument('-dataset-name', default='cifar10',
                     help='dataset name', choices=['stl10', 'cifar10'])
-parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
-                    choices=model_names,
-                    help='model architecture: ' +
-                         ' | '.join(model_names) +
-                         ' (default: resnet50)')
+parser.add_argument('-a', '--arch', metavar='ARCH', default='wrn',
+                    help='model architecture: (default: wrn)')
+parser.add_argument('--depth', default=28, type=int, help='model depth for WRN')
+parser.add_argument('--width', default=2, type=int, help='model width for WRN')
 parser.add_argument('-j', '--workers', default=12, type=int, metavar='N',
                     help='number of data loading workers (default: 32)')
 parser.add_argument('--epochs', default=200, type=int, metavar='N',
@@ -49,7 +44,8 @@ parser.add_argument('--temperature', default=0.07, type=float,
                     help='softmax temperature (default: 0.07)')
 parser.add_argument('--n-views', default=2, type=int, metavar='N',
                     help='Number of views for contrastive learning training.')
-parser.add_argument('--gpu-index', default=0, type=int, help='Gpu index.')
+parser.add_argument('--gpu-id', default=0, type=int, help='Gpu id.')
+parser.add_argument('--out', default='runs', help='directory to output the result')
 
 
 def main():
@@ -62,7 +58,9 @@ def main():
         cudnn.benchmark = True
     else:
         args.device = torch.device('cpu')
-        args.gpu_index = -1
+        args.gpu_id = -1
+
+    os.makedirs(args.out, exist_ok=True)
 
     dataset = ContrastiveLearningDataset(args.data)
 
@@ -72,15 +70,17 @@ def main():
         train_dataset, batch_size=args.batch_size, shuffle=True,
         num_workers=args.workers, pin_memory=True, drop_last=True)
 
-    model = ResNetSimCLR(base_model=args.arch, out_dim=args.out_dim)
+    print(f"Model: {args.arch} Depth: {args.depth} Width: {args.width}")
+    model = ModelSimCLR(base_model=args.arch, out_dim=args.out_dim, depth=args.depth, width=args.width)
+    print("     Total params: %.2fM" % (sum(p.numel() for p in model.parameters())/1000000.0))
 
     optimizer = torch.optim.Adam(model.parameters(), args.lr, weight_decay=args.weight_decay)
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_loader), eta_min=0,
                                                            last_epoch=-1)
 
-    #  It’s a no-op if the 'gpu_index' argument is a negative integer or None.
-    with torch.cuda.device(args.gpu_index):
+    #  It’s a no-op if the 'gpu_id' argument is a negative integer or None.
+    with torch.cuda.device(args.gpu_id):
         simclr = SimCLR(model=model, optimizer=optimizer, scheduler=scheduler, args=args)
         simclr.train(train_loader)
 
